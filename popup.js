@@ -23,11 +23,36 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+const ACHIEVEMENT_LABELS = {
+  'weigh_in': { icon: '⚖️', label: 'Weigh In' },
+  'workout': { icon: '💪', label: 'Workout' },
+  'dev_hours': { icon: '💻', label: 'Dev Hours' },
+  'steps': { icon: '🚶', label: 'Steps' },
+  'meditation': { icon: '🧘', label: 'Meditation' },
+  'reading': { icon: '📖', label: 'Reading' },
+  'journal': { icon: '📝', label: 'Journal' },
+  'clean_eating': { icon: '🥗', label: 'Clean Eating' }
+};
+
+function formatMinutes(m) {
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem > 0 ? `${h}h${rem}m` : `${h}h`;
+  }
+  return `${m}m`;
+}
+
+function shortSiteName(site) {
+  return site.replace('.com', '').replace('.org', '').replace('.net', '');
+}
+
 function loadDashboard() {
   chrome.runtime.sendMessage({ type: 'get-stats' }, (response) => {
     if (chrome.runtime.lastError || !response) return;
 
-    const { config, stats, date } = response;
+    const { config, stats, achievements, date } = response;
+    const achievementMode = config.achievement_mode || false;
 
     // Update date label
     document.getElementById('date-label').textContent = formatDate(date);
@@ -46,6 +71,55 @@ function loadDashboard() {
       pauseNotice.style.display = 'none';
     }
 
+    // Render achievements section
+    const achievementsSection = document.getElementById('achievements-section');
+    const achievementsList = document.getElementById('achievements-list');
+    if (achievementMode && achievements && achievements.completed) {
+      achievementsSection.style.display = 'block';
+      achievementsList.innerHTML = '';
+
+      for (const [key, ach] of Object.entries(achievements.completed)) {
+        const meta = ACHIEVEMENT_LABELS[key] || { icon: '🏆', label: key };
+        const status = ach.done ? '✅' : '⬜';
+        const unlockSites = (ach.unlocks || []).map(s => shortSiteName(s)).join('/');
+        const timeLabel = formatMinutes(ach.minutes || 0);
+
+        let progressText = '';
+        if (!ach.done && ach.target && ach.current !== undefined) {
+          progressText = ` (${ach.current}/${ach.target})`;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'achievement-row' + (ach.done ? ' done' : '');
+        row.innerHTML = `
+          <span class="ach-icon">${meta.icon}</span>
+          <span class="ach-label">${meta.label}</span>
+          <span class="ach-arrow">→</span>
+          <span class="ach-unlock">${timeLabel} ${unlockSites}${progressText}</span>
+          <span class="ach-status">${status}</span>
+        `;
+        achievementsList.appendChild(row);
+      }
+    } else {
+      achievementsSection.style.display = 'none';
+    }
+
+    // Build per-site earned minutes map from achievements
+    const earnedMinutesMap = {};
+    const siteLockedMap = {};
+    if (achievementMode && achievements && achievements.completed) {
+      for (const site of Object.keys(config.tracked_sites)) {
+        let earned = 0;
+        for (const [, ach] of Object.entries(achievements.completed)) {
+          if (ach.done && ach.unlocks && ach.unlocks.includes(site)) {
+            earned += ach.minutes || 0;
+          }
+        }
+        earnedMinutesMap[site] = earned;
+        siteLockedMap[site] = earned === 0;
+      }
+    }
+
     // Render sites
     const sitesList = document.getElementById('sites-list');
     const sites = config.tracked_sites;
@@ -60,30 +134,44 @@ function loadDashboard() {
     for (const [site, siteConfig] of Object.entries(sites)) {
       const siteStats = stats[site] || { timeSpent: 0, overrides: 0, blocked: false };
       const timeSpent = siteStats.timeSpent || 0;
-      const limit = siteConfig.limit || 60;
-      const pct = Math.min(100, (timeSpent / limit) * 100);
+      const isLocked = achievementMode && siteLockedMap[site];
+      const effectiveLimit = achievementMode && earnedMinutesMap[site] !== undefined && earnedMinutesMap[site] > 0
+        ? earnedMinutesMap[site]
+        : siteConfig.limit || 60;
+      const limit = isLocked ? 0 : effectiveLimit;
+      const pct = isLocked ? 0 : Math.min(100, (timeSpent / limit) * 100);
       const overridesUsed = siteStats.overrides || 0;
       const overridesRemaining = Math.max(0, 3 - overridesUsed);
-      const isBlocked = siteStats.blocked || false;
+      const isBlocked = isLocked || siteStats.blocked || false;
 
       let barClass = 'green';
-      if (pct >= 80) barClass = 'red';
+      if (isLocked) barClass = 'locked';
+      else if (pct >= 80) barClass = 'red';
       else if (pct >= 50) barClass = 'yellow';
-      if (isBlocked) barClass = 'blocked';
+      if (siteStats.blocked) barClass = 'blocked';
+
+      let statusHtml = '';
+      if (isLocked) {
+        statusHtml = '<span class="locked-label">🔒 Locked</span>';
+      } else if (siteStats.blocked) {
+        statusHtml = '<span style="color:#e94560">Blocked</span>';
+      } else {
+        statusHtml = '<span></span>';
+      }
 
       const card = document.createElement('div');
-      card.className = 'site-card';
+      card.className = 'site-card' + (isLocked ? ' site-card-locked' : '');
       card.innerHTML = `
         <div class="site-header">
           <span class="site-name ${isBlocked ? 'site-blocked-label' : ''}">${site}</span>
-          <span class="site-time">${timeSpent}m / ${limit}m</span>
+          <span class="site-time">${isLocked ? '🔒' : timeSpent + 'm / ' + limit + 'm'}</span>
         </div>
         <div class="site-bar-bg">
           <div class="site-bar-fill ${barClass}" style="width: ${pct}%"></div>
         </div>
         <div class="site-footer">
-          ${isBlocked ? '<span style="color:#e94560">Blocked</span>' : '<span></span>'}
-          <span class="overrides-badge">${overridesRemaining} overrides left</span>
+          ${statusHtml}
+          ${isLocked ? '<span></span>' : `<span class="overrides-badge">${overridesRemaining} overrides left</span>`}
         </div>
       `;
       sitesList.appendChild(card);

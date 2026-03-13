@@ -11,7 +11,8 @@ const DEFAULT_CONFIG = {
   },
   webhook_url: '',
   enabled: true,
-  pause_until: null
+  pause_until: null,
+  achievement_mode: false
 };
 
 const QUOTES = [
@@ -112,6 +113,38 @@ async function getScheduleBlocks() {
   return data.schedule_blocks || [];
 }
 
+// ---- Achievement Helpers ----
+async function getAchievements() {
+  const data = await chrome.storage.local.get(['achievements']);
+  const achievements = data.achievements;
+  if (!achievements || achievements.date !== todayKey()) return null;
+  return achievements;
+}
+
+function getAchievementUnlocksForSite(achievements, site) {
+  if (!achievements || !achievements.completed) return { unlocked: false, earnedMinutes: 0, unlockedBy: [] };
+  let earnedMinutes = 0;
+  const unlockedBy = [];
+  for (const [key, ach] of Object.entries(achievements.completed)) {
+    if (ach.done && ach.unlocks && ach.unlocks.includes(site)) {
+      earnedMinutes += ach.minutes || 0;
+      unlockedBy.push(key);
+    }
+  }
+  return { unlocked: earnedMinutes > 0, earnedMinutes, unlockedBy };
+}
+
+function getAchievementsNeededForSite(achievements, site) {
+  if (!achievements || !achievements.completed) return [];
+  const needed = [];
+  for (const [key, ach] of Object.entries(achievements.completed)) {
+    if (!ach.done && ach.unlocks && ach.unlocks.includes(site)) {
+      needed.push(key);
+    }
+  }
+  return needed;
+}
+
 // ---- Webhook ----
 async function sendWebhook(payload) {
   const config = await getConfig();
@@ -151,7 +184,52 @@ async function checkBlockState(site) {
     return { blocked: true, reason: 'cutoff', quote: getRandomQuote() };
   }
 
-  // Check time limit
+  // Achievement mode check
+  if (config.achievement_mode) {
+    const achievements = await getAchievements();
+    if (achievements) {
+      const unlockInfo = getAchievementUnlocksForSite(achievements, site);
+      if (!unlockInfo.unlocked) {
+        // Site is locked — no achievements completed for it
+        const needed = getAchievementsNeededForSite(achievements, site);
+        return {
+          blocked: true,
+          reason: 'achievement_locked',
+          quote: getRandomQuote(),
+          neededAchievements: needed,
+          achievements: achievements.completed
+        };
+      }
+      // Site unlocked by achievements — use earned minutes as the effective limit
+      const stats = await getDayStats(todayKey());
+      const siteStats = stats[site] || { timeSpent: 0, overrides: 0, blocked: false };
+      const effectiveLimit = unlockInfo.earnedMinutes;
+      if (siteStats.timeSpent >= effectiveLimit) {
+        if (siteStats.overrideUntil && Date.now() < siteStats.overrideUntil) {
+          return { blocked: false };
+        }
+        return {
+          blocked: true,
+          reason: 'limit',
+          quote: getRandomQuote(),
+          timeSpent: siteStats.timeSpent,
+          limit: effectiveLimit,
+          overridesUsed: siteStats.overrides || 0
+        };
+      }
+      return { blocked: false };
+    }
+    // No achievements data for today — all tracked sites locked
+    return {
+      blocked: true,
+      reason: 'achievement_locked',
+      quote: getRandomQuote(),
+      neededAchievements: [],
+      achievements: {}
+    };
+  }
+
+  // Check time limit (normal mode)
   const stats = await getDayStats(todayKey());
   const siteStats = stats[site] || { timeSpent: 0, overrides: 0, blocked: false };
   if (siteStats.timeSpent >= siteConfig.limit) {
@@ -211,10 +289,22 @@ async function handleTick() {
   stats[site].timeSpent += 1; // +1 minute
   const siteConfig = config.tracked_sites[site];
 
+  // Determine effective limit (achievement mode may override)
+  let effectiveLimit = siteConfig.limit;
+  if (config.achievement_mode) {
+    const achievements = await getAchievements();
+    if (achievements) {
+      const unlockInfo = getAchievementUnlocksForSite(achievements, site);
+      if (unlockInfo.unlocked) {
+        effectiveLimit = unlockInfo.earnedMinutes;
+      }
+    }
+  }
+
   // Check if limit just reached
-  if (stats[site].timeSpent === siteConfig.limit && !stats[site].blocked) {
+  if (stats[site].timeSpent === effectiveLimit && !stats[site].blocked) {
     stats[site].blocked = true;
-    sendWebhook({ event: 'limit_reached', site, timeSpent: stats[site].timeSpent, limit: siteConfig.limit });
+    sendWebhook({ event: 'limit_reached', site, timeSpent: stats[site].timeSpent, limit: effectiveLimit });
   }
 
   await setDayStats(dateKey, stats);
@@ -293,6 +383,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleSiteVisit(msg).then(sendResponse);
     return true;
   }
+  if (msg.type === 'toggle-achievement-mode') {
+    handleToggleAchievementMode(msg).then(sendResponse);
+    return true;
+  }
 });
 
 async function handleCheckBlock(msg, sender) {
@@ -307,13 +401,24 @@ async function handleCheckBlock(msg, sender) {
   const stats = await getDayStats(todayKey());
   const siteStats = stats[site] || { timeSpent: 0, overrides: 0 };
 
+  let effectiveLimit = config.tracked_sites[site].limit;
+  if (config.achievement_mode) {
+    const achievements = await getAchievements();
+    if (achievements) {
+      const unlockInfo = getAchievementUnlocksForSite(achievements, site);
+      if (unlockInfo.unlocked) {
+        effectiveLimit = unlockInfo.earnedMinutes;
+      }
+    }
+  }
+
   return {
     ...blockState,
     tracked: true,
     site,
     overridesUsed: siteStats.overrides || 0,
     timeSpent: siteStats.timeSpent || 0,
-    limit: config.tracked_sites[site].limit
+    limit: effectiveLimit
   };
 }
 
@@ -366,7 +471,8 @@ async function handleGetStats() {
   const config = await getConfig();
   const stats = await getDayStats(todayKey());
   const scheduleBlocks = await getScheduleBlocks();
-  return { config, stats, scheduleBlocks, date: todayKey() };
+  const achievements = await getAchievements();
+  return { config, stats, scheduleBlocks, achievements, date: todayKey() };
 }
 
 async function handleToggle(msg) {
@@ -382,6 +488,13 @@ async function handlePause(msg) {
   config.pause_until = Date.now() + (msg.minutes || 15) * 60 * 1000;
   await chrome.storage.local.set({ config });
   return { success: true, pause_until: config.pause_until };
+}
+
+async function handleToggleAchievementMode(msg) {
+  const config = await getConfig();
+  config.achievement_mode = msg.enabled;
+  await chrome.storage.local.set({ config });
+  return { success: true };
 }
 
 async function handleTestWebhook(msg) {

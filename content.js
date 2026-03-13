@@ -41,15 +41,49 @@ function showBlockOverlay(data) {
   const overlay = document.createElement('div');
   overlay.id = 'focusguard-overlay';
 
+  const isAchievementLocked = data.reason === 'achievement_locked';
+
   const reasonText = {
     'limit': 'Daily time limit reached',
     'cutoff': 'Past cutoff hours',
-    'scheduled': 'Blocked by schedule'
+    'scheduled': 'Blocked by schedule',
+    'achievement_locked': 'Locked — achievements required'
   }[data.reason] || 'Site blocked';
 
   const overridesUsed = data.overridesUsed || 0;
-  const overridesRemaining = Math.max(0, 3 - overridesUsed);
+  const overridesRemaining = isAchievementLocked ? 0 : Math.max(0, 3 - overridesUsed);
   currentChallenge = generateChallenge();
+
+  // Build achievement unlock hints for achievement_locked blocks
+  let achievementHintsHtml = '';
+  if (isAchievementLocked) {
+    const achievementLabels = {
+      'weigh_in': '⚖️ Weigh In',
+      'workout': '💪 Workout',
+      'dev_hours': '💻 Dev Hours',
+      'steps': '🚶 Steps',
+      'meditation': '🧘 Meditation',
+      'reading': '📖 Reading',
+      'journal': '📝 Journal',
+      'clean_eating': '🥗 Clean Eating'
+    };
+    const needed = data.neededAchievements || [];
+    if (needed.length > 0) {
+      const hints = needed.map(k => achievementLabels[k] || k).join(' or ');
+      achievementHintsHtml = `
+        <div class="fg-achievement-hints">
+          <p class="fg-achievement-hint-label">Complete to unlock:</p>
+          <p class="fg-achievement-hint-items">${hints}</p>
+        </div>
+      `;
+    } else {
+      achievementHintsHtml = `
+        <div class="fg-achievement-hints">
+          <p class="fg-achievement-hint-label">No achievements configured to unlock this site today.</p>
+        </div>
+      `;
+    }
+  }
 
   overlay.innerHTML = `
     <style>
@@ -181,14 +215,36 @@ function showBlockOverlay(data) {
         color: #8892b0 !important;
         font-size: 15px !important;
       }
+      .fg-achievement-hints {
+        margin: 24px 0 0 0 !important;
+        padding: 16px !important;
+        background: #0d1b30 !important;
+        border-radius: 10px !important;
+        border: 1px solid #0f3460 !important;
+      }
+      .fg-achievement-hint-label {
+        font-size: 13px !important;
+        color: #8892b0 !important;
+        margin: 0 0 8px 0 !important;
+      }
+      .fg-achievement-hint-items {
+        font-size: 16px !important;
+        color: #ccd6f6 !important;
+        margin: 0 !important;
+        line-height: 1.6 !important;
+      }
     </style>
     <div class="fg-container">
-      <div class="fg-shield">🛡️</div>
-      <h1 class="fg-title">FocusGuard Active</h1>
+      <div class="fg-shield">${isAchievementLocked ? '🔒' : '🛡️'}</div>
+      <h1 class="fg-title">${isAchievementLocked ? 'Site Locked' : 'FocusGuard Active'}</h1>
       <p class="fg-reason">${reasonText}</p>
       <div class="fg-site">${data.site || ''}</div>
-      <p class="fg-quote">"${data.quote || ''}"</p>
-      ${overridesRemaining > 0 ? `
+      ${isAchievementLocked ? achievementHintsHtml : `<p class="fg-quote">"${data.quote || ''}"</p>`}
+      ${isAchievementLocked ? `
+        <div class="fg-override-section">
+          <p class="fg-no-overrides">Complete achievements to earn time on this site.</p>
+        </div>
+      ` : overridesRemaining > 0 ? `
         <div class="fg-override-section">
           <p class="fg-override-label">Need 5 more minutes? Type the code below exactly:</p>
           <div class="fg-challenge-display" id="fg-challenge">${currentChallenge}</div>

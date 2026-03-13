@@ -21,6 +21,17 @@ function bindEvents() {
   });
   document.getElementById('import-file').addEventListener('change', importSettings);
   document.getElementById('reset-stats-btn').addEventListener('click', resetStats);
+  document.getElementById('achievement-mode-toggle').addEventListener('change', (e) => {
+    chrome.runtime.sendMessage({ type: 'toggle-achievement-mode', enabled: e.target.checked }, (response) => {
+      const status = document.getElementById('achievement-mode-status');
+      if (response && response.success) {
+        status.textContent = e.target.checked ? 'Achievement Mode enabled' : 'Achievement Mode disabled';
+        status.className = 'status-text success';
+        if (currentConfig) currentConfig.achievement_mode = e.target.checked;
+      }
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    });
+  });
 }
 
 function loadSettings() {
@@ -30,6 +41,7 @@ function loadSettings() {
     currentConfig = response.config;
     renderSites(currentConfig.tracked_sites);
     document.getElementById('webhook-url').value = currentConfig.webhook_url || '';
+    document.getElementById('achievement-mode-toggle').checked = currentConfig.achievement_mode || false;
 
     // Load schedule blocks
     const scheduleBlocks = response.scheduleBlocks || [];
