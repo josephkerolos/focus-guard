@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head><title>Generate FocusGuard Icons</title></head>
+<body>
+<h2>Right-click each image → Save As into icons/ folder</h2>
+<p>Or use the script below to auto-download them.</p>
+<canvas id="c16" width="16" height="16"></canvas>
+<canvas id="c48" width="48" height="48"></canvas>
+<canvas id="c128" width="128" height="128"></canvas>
+<br><br>
+<img id="img16"> <img id="img48"> <img id="img128">
+<br><br>
+<button id="dl">Download All</button>
+<script>
+function drawIcon(canvas) {
+  const s = canvas.width;
+  const ctx = canvas.getContext('2d');
+  // Background circle
+  ctx.fillStyle = '#1a1a2e';
+  ctx.beginPath();
+  ctx.arc(s/2, s/2, s/2, 0, Math.PI * 2);
+  ctx.fill();
+  // Shield shape
+  const cx = s/2, cy = s * 0.48;
+  const sw = s * 0.52, sh = s * 0.6;
+  ctx.fillStyle = '#e94560';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - sh/2);
+  ctx.quadraticCurveTo(cx + sw/2, cy - sh/2 + sh*0.1, cx + sw/2, cy);
+  ctx.quadraticCurveTo(cx + sw/2, cy + sh*0.4, cx, cy + sh/2);
+  ctx.quadraticCurveTo(cx - sw/2, cy + sh*0.4, cx - sw/2, cy);
+  ctx.quadraticCurveTo(cx - sw/2, cy - sh/2 + sh*0.1, cx, cy - sh/2);
+  ctx.fill();
+  // Inner shield
+  ctx.fillStyle = '#0f3460';
+  const iw = sw * 0.65, ih = sh * 0.65;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - ih/2);
+  ctx.quadraticCurveTo(cx + iw/2, cy - ih/2 + ih*0.1, cx + iw/2, cy);
+  ctx.quadraticCurveTo(cx + iw/2, cy + ih*0.4, cx, cy + ih/2);
+  ctx.quadraticCurveTo(cx - iw/2, cy + ih*0.4, cx - iw/2, cy);
+  ctx.quadraticCurveTo(cx - iw/2, cy - ih/2 + ih*0.1, cx, cy - ih/2);
+  ctx.fill();
+  // Checkmark / F letter
+  if (s >= 48) {
+    ctx.fillStyle = '#e94560';
+    ctx.font = `bold ${s * 0.3}px system-ui`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('F', cx, cy + s*0.03);
+  }
+}
+[16,48,128].forEach(sz => {
+  const c = document.getElementById('c' + sz);
+  drawIcon(c);
+  document.getElementById('img' + sz).src = c.toDataURL('image/png');
+});
+document.getElementById('dl').onclick = () => {
+  [16,48,128].forEach(sz => {
+    const c = document.getElementById('c' + sz);
+    const a = document.createElement('a');
+    a.download = 'icon' + sz + '.png';
+    a.href = c.toDataURL('image/png');
+    a.click();
+  });
+};
+</script>
+</body>
+</html>

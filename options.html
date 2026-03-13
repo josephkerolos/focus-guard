@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FocusGuard Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🛡️ FocusGuard Settings</h1>
+    </header>
+
+    <!-- Tracked Sites -->
+    <section class="card">
+      <h2>Tracked Sites</h2>
+      <div id="sites-list" class="sites-config-list">
+        <!-- Populated by JS -->
+      </div>
+      <div class="add-site-row">
+        <input type="text" id="new-site-input" placeholder="e.g. tiktok.com" class="input">
+        <input type="number" id="new-site-limit" placeholder="Limit (min)" class="input input-sm" min="1" value="30">
+        <input type="number" id="new-site-cutoff" placeholder="Cutoff hr" class="input input-sm" min="0" max="23">
+        <button id="add-site-btn" class="btn btn-primary">Add</button>
+      </div>
+    </section>
+
+    <!-- Webhook -->
+    <section class="card">
+      <h2>Webhook Integration</h2>
+      <div class="form-group">
+        <label>Webhook URL</label>
+        <input type="url" id="webhook-url" placeholder="https://your-webhook-endpoint.com/hook" class="input input-full">
+      </div>
+      <div class="btn-row">
+        <button id="test-webhook-btn" class="btn btn-secondary">Test Webhook</button>
+        <span id="webhook-status" class="status-text"></span>
+      </div>
+    </section>
+
+    <!-- Schedule Blocks -->
+    <section class="card">
+      <h2>Schedule-Based Blocking</h2>
+      <p class="help-text">JSON array of schedule blocks. Format: <code>[{"site":"youtube.com","start":"09:00","end":"17:00","days":[1,2,3,4,5]}]</code></p>
+      <textarea id="schedule-json" class="input input-full textarea" rows="5" placeholder='[{"site":"youtube.com","start":"09:00","end":"17:00","days":[1,2,3,4,5]}]'></textarea>
+      <button id="save-schedule-btn" class="btn btn-primary">Save Schedule</button>
+      <span id="schedule-status" class="status-text"></span>
+    </section>
+
+    <!-- Import/Export -->
+    <section class="card">
+      <h2>Data Management</h2>
+      <div class="btn-row">
+        <button id="export-btn" class="btn btn-secondary">Export Settings</button>
+        <button id="import-btn" class="btn btn-secondary">Import Settings</button>
+        <input type="file" id="import-file" accept=".json" style="display:none">
+      </div>
+      <div class="btn-row" style="margin-top: 12px">
+        <button id="reset-stats-btn" class="btn btn-danger">Reset Today's Stats</button>
+      </div>
+    </section>
+
+    <div id="toast" class="toast" style="display:none"></div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

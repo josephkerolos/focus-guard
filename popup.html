@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FocusGuard</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-row">
+        <h1>🛡️ FocusGuard</h1>
+        <div class="controls">
+          <button id="pause-btn" class="btn btn-secondary" title="Pause 15 min">⏸️</button>
+          <label class="toggle">
+            <input type="checkbox" id="enabled-toggle" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+      <p class="subtitle" id="date-label">Today</p>
+    </header>
+
+    <div id="pause-notice" class="pause-notice" style="display:none">
+      <span>⏸️ Paused until <span id="pause-time"></span></span>
+    </div>
+
+    <div id="sites-list" class="sites-list">
+      <!-- Populated by JS -->
+    </div>
+
+    <footer>
+      <a href="#" id="options-link">⚙️ Settings</a>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
