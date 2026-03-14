@@ -67,5 +67,78 @@ Sites can now require **real-world achievements** before they unlock each day. A
 - `options.html/js/css` — Achievement Mode toggle with help text
 - `DONE.md` — Updated build summary
 
+## FocusGuard Server + Bidirectional Communication (v1.2)
+
+### What Was Built
+A pure Node.js HTTP server (`focusguard-server/`) that acts as a bidirectional bridge between the Chrome extension and LifeOS/Claw AI. The extension now polls the server for state and sends events to it.
+
+### Server Endpoints
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Health check (no auth) |
+| `/api/state` | GET | Current state for extension (achievements, schedule_blocks, limits, blocked_sites, messages) |
+| `/api/events` | POST | Receive events from extension (site_visit, limit_reached, override_used, daily_summary) |
+| `/api/events` | GET | Read events (for Claw), supports `?since=<timestamp>&limit=50` |
+| `/api/command` | POST | Receive commands from Claw (block, unblock, set_limit, set_achievement, send_message) |
+| `/api/summary` | GET | Today's summary (site time, achievements, overrides, adherence score) |
+| `/api/auth` | POST | Verify API key |
+
+All `/api` endpoints require `X-API-Key` header.
+
+### Extension Updates
+- Polls `GET /api/state` every 60 seconds
+- Syncs schedule_blocks, achievements, site limits from server
+- Sends all webhook events to server too
+- Server messages shown via `chrome.notifications` and in popup
+- **Options page**: New "Server Settings" section with URL, API Key, Test Connection button, connection dot
+- **Popup**: Green/gray dot next to date showing server connection status, latest server message
+- Works fully offline — server is an enhancement, not a requirement
+
+### Server Files
+- `focusguard-server/server.js` — Pure Node.js HTTP server (zero npm deps)
+- `focusguard-server/package.json` — name: focusguard-server
+- `focusguard-server/Dockerfile` — FROM node:20-alpine
+- `focusguard-server/railway.json` — Railway deploy config with health check
+- `focusguard-server/.env.example` — PORT, FOCUSGUARD_API_KEY
+
+### How to Deploy to Railway
+1. Push to GitHub (already done: `josephkerolos/focus-guard`)
+2. In Railway, create new project from GitHub repo
+3. Set root directory to `focusguard-server`
+4. Set env vars:
+   - `FOCUSGUARD_API_KEY` = your secret key
+   - `PORT` = set automatically by Railway
+5. Deploy — health check at `/health`
+
+### Railway Environment Variables
+```
+FOCUSGUARD_API_KEY=<your-secret-key>
+```
+
+### How to Connect Extension to Server
+1. Open FocusGuard Settings (options page)
+2. In "Server Settings" section:
+   - Server URL: `https://focusguard-xxx.up.railway.app`
+   - API Key: same as `FOCUSGUARD_API_KEY`
+3. Click "Test Connection" — should show green dot
+
+### Example Claw Commands
+```bash
+# Block YouTube for deep work
+curl -X POST https://YOUR-SERVER/api/command \
+  -H 'X-API-Key: YOUR_KEY' -H 'Content-Type: application/json' \
+  -d '{"action":"block","site":"youtube.com","reason":"Deep Work","until":"18:00"}'
+
+# Set achievement
+curl -X POST https://YOUR-SERVER/api/command \
+  -H 'X-API-Key: YOUR_KEY' -H 'Content-Type: application/json' \
+  -d '{"action":"set_achievement","key":"workout","done":true,"unlocks":["youtube.com","discord.com"],"minutes":60}'
+
+# Send motivational message
+curl -X POST https://YOUR-SERVER/api/command \
+  -H 'X-API-Key: YOUR_KEY' -H 'Content-Type: application/json' \
+  -d '{"action":"send_message","text":"Nice — 4h dev done. Discord unlocked."}'
+```
+
 ## No Setup Steps Required
-Zero dependencies. Just load unpacked in Chrome.
+Zero dependencies for extension. Just load unpacked in Chrome. Server is optional.
