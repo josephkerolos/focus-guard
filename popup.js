@@ -48,14 +48,41 @@ function shortSiteName(site) {
 }
 
 function loadDashboard() {
+  // Load server connection status
+  chrome.runtime.sendMessage({ type: 'get-server-status' }, (response) => {
+    if (chrome.runtime.lastError) return;
+    const indicator = document.getElementById('server-indicator');
+    if (response && response.connected) {
+      indicator.className = 'server-indicator online';
+      indicator.title = 'Server: connected';
+    } else {
+      indicator.className = 'server-indicator offline';
+      indicator.title = 'Server: offline';
+    }
+  });
+
+  // Load latest server message
+  chrome.storage.local.get(['server_last_message'], (data) => {
+    const msgDiv = document.getElementById('server-message');
+    if (data.server_last_message) {
+      msgDiv.textContent = data.server_last_message;
+      msgDiv.style.display = 'block';
+    } else {
+      msgDiv.style.display = 'none';
+    }
+  });
+
   chrome.runtime.sendMessage({ type: 'get-stats' }, (response) => {
     if (chrome.runtime.lastError || !response) return;
 
     const { config, stats, achievements, date } = response;
     const achievementMode = config.achievement_mode || false;
 
-    // Update date label
-    document.getElementById('date-label').textContent = formatDate(date);
+    // Update date label (preserve the server indicator span)
+    const dateLabel = document.getElementById('date-label');
+    const indicator = document.getElementById('server-indicator');
+    dateLabel.textContent = formatDate(date) + ' ';
+    dateLabel.appendChild(indicator);
 
     // Update toggle
     document.getElementById('enabled-toggle').checked = config.enabled;

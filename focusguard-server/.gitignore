@@ -1,0 +1,4 @@
+state.json
+events.json
+node_modules/
+.env

@@ -40,6 +40,25 @@
       <span id="achievement-mode-status" class="status-text"></span>
     </section>
 
+    <!-- Server Settings -->
+    <section class="card">
+      <h2>Server Settings</h2>
+      <p class="help-text">Connect to a FocusGuard server for bidirectional sync with LifeOS/Claw AI.</p>
+      <div class="form-group">
+        <label>Server URL</label>
+        <input type="url" id="server-url" placeholder="https://focusguard-xxx.up.railway.app" class="input input-full">
+      </div>
+      <div class="form-group">
+        <label>API Key</label>
+        <input type="text" id="server-api-key" placeholder="focusguard-dev-key" class="input input-full">
+      </div>
+      <div class="btn-row">
+        <button id="test-server-btn" class="btn btn-secondary">Test Connection</button>
+        <span id="server-status" class="status-text"></span>
+        <span id="server-dot" class="connection-dot offline"></span>
+      </div>
+    </section>
+
     <!-- Webhook -->
     <section class="card">
       <h2>Webhook Integration</h2>

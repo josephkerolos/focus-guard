@@ -1,5 +1,6 @@
 // FocusGuard - Background Service Worker
 // Handles: time tracking, alarm-based increments, webhook sending, block state management
+// Server communication: polls state, sends events
 
 const DEFAULT_CONFIG = {
   tracked_sites: {
@@ -15,11 +16,115 @@ const DEFAULT_CONFIG = {
   achievement_mode: false
 };
 
+// Server connection state
+let serverConnected = false;
+let lastServerMessage = null;
+
 const QUOTES = [
   "Watching someone else's content is borrowing their momentum. Build your own.",
   "Every minute here is a minute not building your empire.",
   "You're not bored. You're avoiding."
 ];
+
+// ---- Server Communication ----
+
+async function getServerSettings() {
+  const data = await chrome.storage.sync.get(['serverUrl', 'apiKey']);
+  return { serverUrl: data.serverUrl || '', apiKey: data.apiKey || '' };
+}
+
+async function serverFetch(endpoint, options = {}) {
+  const { serverUrl, apiKey } = await getServerSettings();
+  if (!serverUrl) return null;
+
+  const url = serverUrl.replace(/\/$/, '') + endpoint;
+  try {
+    const resp = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey,
+        ...(options.headers || {})
+      }
+    });
+    if (!resp.ok) {
+      serverConnected = false;
+      return null;
+    }
+    serverConnected = true;
+    return await resp.json();
+  } catch (e) {
+    serverConnected = false;
+    console.warn('FocusGuard server fetch failed:', e.message);
+    return null;
+  }
+}
+
+async function pollServerState() {
+  const state = await serverFetch('/api/state');
+  if (!state) return;
+
+  // Update schedule_blocks from server
+  if (state.schedule_blocks && Array.isArray(state.schedule_blocks)) {
+    await chrome.storage.local.set({ schedule_blocks: state.schedule_blocks });
+  }
+
+  // Update achievements from server
+  if (state.achievements && typeof state.achievements === 'object' && Object.keys(state.achievements).length > 0) {
+    await chrome.storage.local.set({ achievements: state.achievements });
+  }
+
+  // Update site limits from server
+  if (state.limits && typeof state.limits === 'object') {
+    const config = await getConfig();
+    let changed = false;
+    for (const [site, minutes] of Object.entries(state.limits)) {
+      if (config.tracked_sites[site]) {
+        if (config.tracked_sites[site].limit !== minutes) {
+          config.tracked_sites[site].limit = minutes;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      await chrome.storage.local.set({ config });
+    }
+  }
+
+  // Update blocked_sites in storage for popup to read
+  if (state.blocked_sites && Array.isArray(state.blocked_sites)) {
+    await chrome.storage.local.set({ server_blocked_sites: state.blocked_sites });
+  }
+
+  // Show messages via notifications
+  if (state.messages && Array.isArray(state.messages) && state.messages.length > 0) {
+    const lastMsg = state.messages[state.messages.length - 1];
+    if (lastMsg && lastMsg !== lastServerMessage) {
+      lastServerMessage = lastMsg;
+      await chrome.storage.local.set({ server_last_message: lastMsg });
+      try {
+        chrome.notifications.create('focusguard-server-msg', {
+          type: 'basic',
+          iconUrl: 'icons/icon128.png',
+          title: 'FocusGuard',
+          message: lastMsg
+        });
+      } catch (e) {
+        console.warn('Notification failed:', e);
+      }
+    }
+  }
+}
+
+async function sendServerEvent(eventData) {
+  return serverFetch('/api/events', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...eventData,
+      timestamp: new Date().toISOString()
+    })
+  });
+}
 
 // ---- Init ----
 chrome.runtime.onInstalled.addListener(async () => {
@@ -29,11 +134,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
   chrome.alarms.create('focusguard-tick', { periodInMinutes: 1 });
   chrome.alarms.create('focusguard-daily-summary', { periodInMinutes: 60 });
+  chrome.alarms.create('focusguard-server-poll', { periodInMinutes: 1 });
 });
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('focusguard-tick', { periodInMinutes: 1 });
   chrome.alarms.create('focusguard-daily-summary', { periodInMinutes: 60 });
+  chrome.alarms.create('focusguard-server-poll', { periodInMinutes: 1 });
 });
 
 // ---- Helpers ----
@@ -148,16 +255,20 @@ function getAchievementsNeededForSite(achievements, site) {
 // ---- Webhook ----
 async function sendWebhook(payload) {
   const config = await getConfig();
-  if (!config.webhook_url) return;
-  try {
-    await fetch(config.webhook_url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, timestamp: new Date().toISOString() })
-    });
-  } catch (e) {
-    console.warn('FocusGuard webhook failed:', e);
+  // Send to webhook
+  if (config.webhook_url) {
+    try {
+      await fetch(config.webhook_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, timestamp: new Date().toISOString() })
+      });
+    } catch (e) {
+      console.warn('FocusGuard webhook failed:', e);
+    }
   }
+  // Also send to server
+  sendServerEvent(payload);
 }
 
 // ---- Block State Check ----
@@ -257,6 +368,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
   if (alarm.name === 'focusguard-daily-summary') {
     await handleDailySummary();
+  }
+  if (alarm.name === 'focusguard-server-poll') {
+    await pollServerState();
   }
 });
 
@@ -387,6 +501,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     handleToggleAchievementMode(msg).then(sendResponse);
     return true;
   }
+  if (msg.type === 'test-server') {
+    handleTestServer(msg).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'get-server-status') {
+    sendResponse({ connected: serverConnected, lastMessage: lastServerMessage });
+    return false;
+  }
 });
 
 async function handleCheckBlock(msg, sender) {
@@ -495,6 +617,31 @@ async function handleToggleAchievementMode(msg) {
   config.achievement_mode = msg.enabled;
   await chrome.storage.local.set({ config });
   return { success: true };
+}
+
+async function handleTestServer(msg) {
+  const { serverUrl, apiKey } = msg;
+  if (!serverUrl) return { success: false, error: 'No URL provided' };
+  try {
+    const url = serverUrl.replace(/\/$/, '') + '/api/auth';
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey || ''
+      }
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      serverConnected = true;
+      return { success: true, authenticated: data.authenticated };
+    }
+    serverConnected = false;
+    return { success: false, error: `HTTP ${resp.status}` };
+  } catch (e) {
+    serverConnected = false;
+    return { success: false, error: e.message };
+  }
 }
 
 async function handleTestWebhook(msg) {

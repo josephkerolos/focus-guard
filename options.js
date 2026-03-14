@@ -21,6 +21,10 @@ function bindEvents() {
   });
   document.getElementById('import-file').addEventListener('change', importSettings);
   document.getElementById('reset-stats-btn').addEventListener('click', resetStats);
+  // Server settings
+  document.getElementById('test-server-btn').addEventListener('click', testServer);
+  document.getElementById('server-url').addEventListener('change', saveServerSettings);
+  document.getElementById('server-api-key').addEventListener('change', saveServerSettings);
   document.getElementById('achievement-mode-toggle').addEventListener('change', (e) => {
     chrome.runtime.sendMessage({ type: 'toggle-achievement-mode', enabled: e.target.checked }, (response) => {
       const status = document.getElementById('achievement-mode-status');
@@ -48,6 +52,18 @@ function loadSettings() {
     if (scheduleBlocks.length > 0) {
       document.getElementById('schedule-json').value = JSON.stringify(scheduleBlocks, null, 2);
     }
+  });
+
+  // Load server settings from sync storage
+  chrome.storage.sync.get(['serverUrl', 'apiKey'], (data) => {
+    document.getElementById('server-url').value = data.serverUrl || '';
+    document.getElementById('server-api-key').value = data.apiKey || '';
+  });
+
+  // Check server connection status
+  chrome.runtime.sendMessage({ type: 'get-server-status' }, (response) => {
+    if (chrome.runtime.lastError) return;
+    updateServerDot(response && response.connected);
   });
 }
 
@@ -248,6 +264,53 @@ function resetStats() {
   chrome.storage.local.remove(key, () => {
     showToast('Today\'s stats reset');
   });
+}
+
+function saveServerSettings() {
+  const serverUrl = document.getElementById('server-url').value.trim();
+  const apiKey = document.getElementById('server-api-key').value.trim();
+  chrome.storage.sync.set({ serverUrl, apiKey });
+}
+
+function testServer() {
+  const serverUrl = document.getElementById('server-url').value.trim();
+  const apiKey = document.getElementById('server-api-key').value.trim();
+  const status = document.getElementById('server-status');
+
+  if (!serverUrl) {
+    status.textContent = 'Enter a server URL first';
+    status.className = 'status-text error';
+    updateServerDot(false);
+    return;
+  }
+
+  status.textContent = 'Testing...';
+  status.className = 'status-text';
+
+  chrome.runtime.sendMessage({ type: 'test-server', serverUrl, apiKey }, (response) => {
+    if (chrome.runtime.lastError) {
+      status.textContent = 'Error sending test';
+      status.className = 'status-text error';
+      updateServerDot(false);
+      return;
+    }
+    if (response && response.success) {
+      status.textContent = 'Connected';
+      status.className = 'status-text success';
+      updateServerDot(true);
+      // Save on successful test
+      saveServerSettings();
+    } else {
+      status.textContent = `Failed: ${response ? response.error : 'unknown'}`;
+      status.className = 'status-text error';
+      updateServerDot(false);
+    }
+  });
+}
+
+function updateServerDot(connected) {
+  const dot = document.getElementById('server-dot');
+  dot.className = 'connection-dot ' + (connected ? 'online' : 'offline');
 }
 
 function showToast(message, isError) {

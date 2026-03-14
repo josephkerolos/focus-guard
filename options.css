@@ -277,6 +277,26 @@ h2 {
   transform: translateX(18px);
 }
 
+/* Connection dot */
+.connection-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.connection-dot.online {
+  background: #2ecc71;
+  box-shadow: 0 0 6px #2ecc71;
+}
+
+.connection-dot.offline {
+  background: #e94560;
+  box-shadow: 0 0 6px #e94560;
+}
+
 /* Toast */
 .toast {
   position: fixed;
